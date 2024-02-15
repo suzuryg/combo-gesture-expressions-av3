@@ -10,6 +10,7 @@ namespace Hai.ComboGesture.Scripts.Editor.Internal
         private const string SmoothingLeftLayerName = "Hai_GestureSmoothingLeft";
         private const string SmoothingRightLayerName = "Hai_GestureSmoothingRight";
         private const float DefaultSmoothingFactor = 0.7f;
+        private const float ResetDurationSeconds = 0.5f;
 
         private readonly CgeAssetContainer _assetContainer;
         private readonly AvatarMask _weightCorrectionAvatarMask;
@@ -49,20 +50,36 @@ namespace Hai.ComboGesture.Scripts.Editor.Internal
             var factorTree = CreateFactorTreeFull(layer, proxyParam, smoothingParam);
 
             layer.OverrideValue(smoothingFactor, DefaultSmoothingFactor);
+
+            var constantZero = layer.FloatParameter(CgeSharedLayerUtils.HaiConstantZero);
+            layer.OverrideValue(constantZero, 0);
+
             var waiting = layer.NewState("Waiting", 1, 1)
                 .WithAnimation(factorTree)
                 .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
                 .MotionTime(layer.FloatParameter(proxyParam))
-                .Drives(smoothingFactor, DefaultSmoothingFactor);
+                .Drives(smoothingFactor, DefaultSmoothingFactor)
+                .Drives(constantZero, 0);
 
             var listening = layer.NewState("Listening")
                 .WithAnimation(factorTree)
                 .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
                 .MotionTime(layer.FloatParameter(liveParam))
-                .Drives(smoothingFactor, DefaultSmoothingFactor);
+                .Drives(smoothingFactor, DefaultSmoothingFactor)
+                .Drives(constantZero, 0);
 
             waiting.TransitionsTo(listening).When(layer.IntParameter(handParam).IsEqualTo(1));
             listening.TransitionsTo(waiting).When(layer.IntParameter(handParam).IsNotEqualTo(1));
+
+            var reset = layer.NewState("Reset", 2, 1)
+                .WithAnimation(factorTree)
+                .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
+                .MotionTime(constantZero)
+                .Drives(smoothingFactor, DefaultSmoothingFactor)
+                .Drives(constantZero, 0);
+
+            waiting.TransitionsTo(reset).WithTransitionDurationSeconds(ResetDurationSeconds).WithInterruption(TransitionInterruptionSource.Destination).When(constantZero.IsLessThan(1));
+            reset.TransitionsTo(listening).When(layer.IntParameter(handParam).IsEqualTo(1));
         }
 
         private BlendTree CreateFactorTreeFull(CgeAacFlLayer layer, string proxyParam, string smoothingParam)

@@ -10,7 +10,9 @@ namespace Hai.ComboGesture.Scripts.Editor.Internal
         private const string SmoothingLeftLayerName = "Hai_GestureSmoothingLeft";
         private const string SmoothingRightLayerName = "Hai_GestureSmoothingRight";
         private const float DefaultSmoothingFactor = 0.7f;
-        private const float ResetDurationSeconds = 0.5f;
+
+        private const float BufferDurationSeconds = 0.1f;
+        private const float ResetDurationSeconds = 0.1f;
 
         private readonly CgeAssetContainer _assetContainer;
         private readonly AvatarMask _weightCorrectionAvatarMask;
@@ -54,32 +56,42 @@ namespace Hai.ComboGesture.Scripts.Editor.Internal
             var constantZero = layer.FloatParameter(CgeSharedLayerUtils.HaiConstantZero);
             layer.OverrideValue(constantZero, 0);
 
-            var waiting = layer.NewState("Waiting", 1, 1)
+            var bufferStart = layer.NewState("Buffer Start", 0, 1)
                 .WithAnimation(factorTree)
                 .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
                 .MotionTime(layer.FloatParameter(proxyParam))
                 .Drives(smoothingFactor, DefaultSmoothingFactor)
                 .Drives(constantZero, 0);
 
-            var listening = layer.NewState("Listening")
+            var bufferEnd = layer.NewState("Buffer End", 1, 1)
                 .WithAnimation(factorTree)
                 .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
-                .MotionTime(layer.FloatParameter(liveParam))
+                .MotionTime(layer.FloatParameter(proxyParam))
                 .Drives(smoothingFactor, DefaultSmoothingFactor)
                 .Drives(constantZero, 0);
 
-            waiting.TransitionsTo(listening).When(layer.IntParameter(handParam).IsEqualTo(1));
-            listening.TransitionsTo(waiting).When(layer.IntParameter(handParam).IsNotEqualTo(1));
-
-            var reset = layer.NewState("Reset", 2, 1)
+            var notFist = layer.NewState("Not Fist", 2, 1)
                 .WithAnimation(factorTree)
                 .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
                 .MotionTime(constantZero)
                 .Drives(smoothingFactor, DefaultSmoothingFactor)
                 .Drives(constantZero, 0);
 
-            waiting.TransitionsTo(reset).WithTransitionDurationSeconds(ResetDurationSeconds).WithInterruption(TransitionInterruptionSource.Destination).When(constantZero.IsLessThan(1));
-            reset.TransitionsTo(listening).When(layer.IntParameter(handParam).IsEqualTo(1));
+            var fist = layer.NewState("Fist", 1, 2)
+                .WithAnimation(factorTree)
+                .WithWriteDefaultsSetTo(_writeDefaultsForAnimatedAnimatorParameterStates)
+                .MotionTime(layer.FloatParameter(liveParam))
+                .Drives(smoothingFactor, DefaultSmoothingFactor)
+                .Drives(constantZero, 0);
+
+            bufferStart.TransitionsTo(fist).When(layer.IntParameter(handParam).IsEqualTo(1));
+            bufferEnd.TransitionsTo(fist).When(layer.IntParameter(handParam).IsEqualTo(1));
+            notFist.TransitionsTo(fist).When(layer.IntParameter(handParam).IsEqualTo(1));
+
+            fist.TransitionsTo(bufferStart).When(layer.IntParameter(handParam).IsNotEqualTo(1));
+
+            bufferStart.TransitionsTo(bufferEnd).WithTransitionDurationSeconds(BufferDurationSeconds).WithSourceInterruption().When(constantZero.IsLessThan(1));
+            bufferEnd.TransitionsTo(notFist).WithTransitionDurationSeconds(ResetDurationSeconds).WithSourceInterruption().When(constantZero.IsLessThan(1));
         }
 
         private BlendTree CreateFactorTreeFull(CgeAacFlLayer layer, string proxyParam, string smoothingParam)
